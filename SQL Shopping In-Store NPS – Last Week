@@ -1,0 +1,97 @@
+With Total as (
+SELECT week_key, count(nps_segments_nm) as counttotal
+FROM `instore_rsp_data` a
+left join `DATE_DIM_V`   b 
+ON a.resp_dt = b.greg_date
+WHERE brand_nm in ("Main")
+and srvy_typ in ('Store','.COM','Pick Up',’Off Price’,'Store Return Only','F & M')
+and omni_srvy_ind in ("No")
+and nps_segments_nm in ('Detractor','Promoter','Passive')
+and (purchasingunitowner in ('Store', ’Off Price’) or fulfillmentunitowner in ('Store', ’Off Price’) or pickupunitowner in ('Store', ’Off Price’))
+and week_cnt in (-1)
+group by week_key)
+
+, NPS_segments_promoter as (
+SELECT week_key, count(nps_segments_nm) as countnps_promoter
+FROM ` instore_rsp_data` a
+left join `DATE_DIM_V`   b 
+ON a.resp_dt = b.greg_date
+WHERE brand_nm in ("Main")
+and srvy_typ in ('Store','.COM','Pick Up',’Off Price’,'Store Return Only','F & M')
+and omni_srvy_ind in ("No")
+and week_cnt in (-1)
+and nps_segments_nm in ('Promoter')
+and( purchasingunitowner in ('Store', ’Off Price’) or fulfillmentunitowner in ('Store', ’Off Price’) or pickupunitowner in ('Store', ’Off Price’))
+group by week_key)
+
+, NPS_segments_detractor as (
+SELECT week_key, count(nps_segments_nm) as countnps_detractor
+FROM ` instore_rsp_data` a
+left join `DATE_DIM_V`   b 
+ON a.resp_dt = b.greg_date
+WHERE brand_nm in ("Main")
+and srvy_typ in ('Store','.COM','Pick Up',’Off Price’,'Store Return Only','F & M')
+and omni_srvy_ind in ("No")
+and week_cnt in (-1)
+and nps_segments_nm in ('Detractor')
+and (purchasingunitowner in ('Store', ’Off Price’) or fulfillmentunitowner in ('Store', ’Off Price’) or pickupunitowner in ('Store', ’Off Price’))
+group by week_key)
+
+--LY
+, DATE_DIM_V_LY as (select ly.*  from (
+(select distinct year,period,week,year_cnt,period_cnt,week_cnt,week_key from `DATE_DIM_V` where week_cnt in (-1)) ty
+inner join
+(select distinct greg_date,year,period,week,year_cnt,period_cnt,week_cnt,week_key from `DATE_DIM_V`) ly
+on ty.year-1=ly.year
+and ty.period=ly.period
+and ty.week=ly.week
+))
+, Total_ly as (
+SELECT week_key, count(nps_segments_nm) as counttotal
+FROM ` instore_rsp_data` a
+inner join DATE_DIM_V_LY   b 
+ON a.resp_dt = b.greg_date
+WHERE brand_nm in ("Main")
+and srvy_typ in ('Store','.COM','Pick Up',’Off Price’,'Store Return Only','F & M')
+and omni_srvy_ind in ("No")
+and nps_segments_nm in ('Detractor','Promoter','Passive')
+and (purchasingunitowner in ('Store', ’Off Price’) or fulfillmentunitowner in ('Store', ’Off Price’) or pickupunitowner in ('Store', ’Off Price’))
+group by week_key)
+
+, NPS_segments_promoter_ly as (
+SELECT week_key, count(nps_segments_nm) as countnps_promoter
+FROM ` instore_rsp_data` a
+inner join DATE_DIM_V_LY   b 
+ON a.resp_dt = b.greg_date
+WHERE brand_nm in ("Main")
+and srvy_typ in ('Store','.COM','Pick Up',’Off Price’,'Store Return Only','F & M')
+and omni_srvy_ind in ("No")
+and nps_segments_nm in ('Promoter')
+and (purchasingunitowner in ('Store', ’Off Price’) or fulfillmentunitowner in ('Store', ’Off Price’) or pickupunitowner in ('Store', ’Off Price’))
+group by week_key)
+
+, NPS_segments_detractor_ly as (
+SELECT week_key, count(nps_segments_nm) as countnps_detractor
+FROM ` instore_rsp_data` a
+inner join DATE_DIM_V_LY   b 
+ON a.resp_dt = b.greg_date
+WHERE brand_nm in ("Main")
+and srvy_typ in ('Store','.COM','Pick Up',’Off Price’,'Store Return Only','F & M)
+and omni_srvy_ind in ("No")
+and nps_segments_nm in ('Detractor')
+and (purchasingunitowner in ('Store', ’Off Price’) or fulfillmentunitowner in ('Store', ’Off Price’) or pickupunitowner in ('Store', ’Off Price’))
+group by week_key)
+
+--,TY as (
+Select a.week_key, round((((countnps_promoter)-(countnps_detractor)) / (counttotal))*100,2) as NPS_TY
+,current_date() daas_part_dt 
+From NPS_segments_detractor a 
+left join Total b on a.week_key=b.week_key
+left join NPS_segments_promoter c on a.week_key = c.week_key
+
+union all
+Select b.week_key, round((((countnps_promoter)-(countnps_detractor))/(counttotal))*100,2) as NPS_TY
+,current_date() daas_part_dt 
+From NPS_segments_detractor_ly a 
+left join Total_ly b on a.week_key=b.week_key
+left join NPS_segments_promoter_ly c on a.week_key = c.week_key

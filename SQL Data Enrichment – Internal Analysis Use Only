@@ -1,0 +1,164 @@
+Select * from (
+Select
+z.CUST_ID  as CUST_ID_1, --has INDIV id Name from original import doc
+x.cust_id,
+x.tot_netnet,
+x.tot_netnet_with_visit,
+x.visit_cnt,
+x.tot_netnet_return,
+ 
+case when x.tot_netnet_store_only > 0 and x.tot_netnet_online_only > 0 then 'BOTH'
+      when x.tot_netnet_store_only > 0 and x.tot_netnet_online_only = 0 then 'STORE'
+      when x.tot_netnet_store_only = 0 and x.tot_netnet_online_only > 0 then 'ONLINE'
+end as channel_shopped,
+ 
+seg.seg,
+
+case when x.tot_netnet_return <> 0 then 'Y' else 'N' end as return_ind,
+ 
+x.fob_shopped,
+x.last_visit_dt,
+x.main_netnet,
+x.main_netnet_with_visit,
+x.offprice_netnet,
+x.offprice_netnet_with_visit,
+x.ss_ps_netnet,
+x.ss_ps_netnet_with_visit,
+case when lty.age_nbr between 18 and 24 then 'Youth Culture'
+      when lty.age_nbr between 25 and 29 then 'Newly Independent'
+      when lty.age_nbr between 30 and 39 then 'Adulting'
+      when lty.age_nbr between 40 and 49 then 'Prime'
+      when lty.age_nbr between 50 and 69 then 'Golden Age'
+      when lty.age_nbr >69 then 'Young at Heart'
+end as life_stage,
+
+lty.gndr,
+cmix.ethnc_desc,
+lty.str_resid_str_nbr,
+lty.city_nm,
+lty.stt,
+lty.post,
+cred.acct_typ as cred_acct_typ,
+cred.acct_open_dt as cred_acct_open_dt,
+cred.lst_prch_dt as cred_lst_prch_dt,
+cred.card_actvn as cred_card_actvn,
+cred.brand as cred_brand,
+hhld.incm_bracket,
+clv.predict_sales,
+
+from
+ 
+(
+select
+m.cust_id,
+ 
+coalesce(sum(m.netnet_prch_amt),0) as tot_netnet ,   /*nvl(sum(m.netnet_prch_amt),0) as tot_netnet*/
+coalesce(sum(case when m.vst_cd is not null then m.netnet_prch_amt else 0 end),0) as tot_netnet_with_visit ,         /*nvl(sum(case when m.vst_cd is not null then m.netnet_prch_amt else 0 end),0) as tot_netnet_with_visit,  */
+ 
+sum(case when m.vst_cd is not null and m.chnl_cd = 'A' then m.netnet_prch_amt else 0 end) as tot_netnet_store_only,
+sum(case when m.vst_cd is not null and m.chnl_cd = 'F' then m.netnet_prch_amt else 0 end) as tot_netnet_online_only,
+ 
+count(distinct m.vst_cd) as visit_cnt,
+sum(case when sign(m.item_amt) = -1 then m.netnet_prch_amt else 0 end) as tot_netnet_return,
+ 
+STRING_AGG(distinct m.fob_combo , "," ) as fob_shopped,    /* listagg(distinct m.fob_combo, ',') within group (order by m.fob_cd) as fob_shopped, */
+ 
+max(case when m.vst_cd is not null then m.txn_dt else null end) as last_visit_dt,
+sum(case when m.divn_nbr = 1  then m. netnet_prch_amt else 0 end) main_netnet,
+ 
+sum(case when m.divn_nbr = 1 and m.vst_cd is not null then m. netnet_prch_amt else 0 end) main_netnet_with_visit,
+sum(case when m.divn_nbr = 7  then m.netnet_prch_amt else 0 end) offprice_netnet,
+sum(case when m.divn_nbr = 7 and m.vst_cd is not null then m.netnet_prch_amt else 0 end) offprice_netnet_with_visit,
+sum(case when  m. ss_ind = 'Y' or m. ps_ind = 'Y'  then m.netnet_prch_amt else 0 end) ss_ps_netnet,
+sum(case when (m. ss_ind = 'Y' or m. ps_ind = 'Y') and m.vst_cd is not null then m.netnet_prch_amt else 0 end) ss_ps_netnet_with_visit
+ 
+from
+(
+
+select a.*, case when coalesce(fob_cd,'X') <> '@@@@' then fob_cd||'-'||fob_nm end as fob_combo
+ 
+from ` merch_v` a ,
+(
+  
+Select min(greg_date) as min_greg_date, max(greg_date) as max_greg_date 
+from(
+select * 
+from DATE_DIM  where period_key in
+(
+select period_key_1 from 
+(select period_key as period_key_1, ROW_NUMBER() OVER(ORDER BY period_key) as ROWNUM2
+from
+  (
+    select distinct(period_key) as period_key 
+    from DATE_DIM order by period_key
+  ))
+
+INNER JOIN
+(
+select T1.period_key, ROWNUM
+from
+(
+select period_key from DATE_DIM  
+where greg_date = current_date()
+) T1
+left join
+(
+ select period_key, ROW_NUMBER() OVER(ORDER BY period_key) as ROWNUM
+from
+  (
+    select distinct(period_key) as period_key 
+    from DATE_DIM order by period_key
+  ) 
+) T2
+on T1.period_key = T2.period_key
+)
+ON ROWNUM2 >= ROWNUM - 12 and ROWNUM2 < ROWNUM     --- Replace 12 with the number of months you are interested in. This gives data till last fiscal month.
+ORDER BY period_key_1
+)
+order by greg_date
+)
+)
+
+where 1=1
+ 
+  and chnl in ('A','F')
+ 
+  and divn_nbr in (1,7)
+ 
+  and txn_dt between min_greg_date and max_greg_date 
+
+
+ 
+) m
+group by m.cust_id
+) x,
+ 
+(
+select cust_id as CUST_ID from `data_to_enrich_tbl` where cust_id is not null group by cust_id  --this should be table containing list of CUST IDs
+) z
+left join 
+( 
+  select * from 
+    (
+      select * , rank() over(partition by cust_id order by yr_prd desc) as rnk  
+      from cust_seg 
+    )
+  where rnk = 1
+) seg 
+
+on x.cust_id = seg.cust_id
+left join (select * from ` individual_tbl` where fin_divn_nbr = 1) lty on x.cust_id = lty.cust_id
+
+left join (select * from `cust _demographics_v`  where fin_div_nbr = 1) cmix on x.cust_id = cmix.cust_id and lty.kept_perm_id = cmix.kept_perm_id and lty.hhld_id = cmix.hhld_id
+
+left join (select * from clv_ref_tbl where fin_divn_nbr = 1) clv on x.cust_id = clv.cust_id
+
+left join (SELECT cust_id, perm_id, MAX(acct_open_dt) as acct_open_dt, MAX(acct_typ) as acct_typ, MAX(lst_pay_dt ) as lst_pay_dt, MAX(lst_prch_dt ) as lst_prch_dt, MAX(card_actvn) as card_actvn, MAX(card_exprtn_dt ) as card_exprtn_dt, MAX(brand) as brand from ` crd_acct_mstr` c where fin_divn_nbr = 1 group by cust_id, perm_id )cred on x.cust_id = cred.cust_id and lty.kept_perm_id = cred.perm_id
+
+
+left join (select * from `hh _demographics` where fin_divn_nbr = 1) hhld on x.cust_id = hhld.cust_id and lty.hhld_id = hhld.hhld_id
+where 1=1
+and x.cust_id = z.CUST_ID --has CUST id Name from original import doc     
+)
+
+order by CUST_ID
